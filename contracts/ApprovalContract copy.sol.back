@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-3.0
+
+pragma solidity >=0.7.0 <0.9.0;
+
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/ownable.sol";
+
+
+
+
+contract ApprovalContract{
+    //owner is Team account
+
+    //meanwhile calc percentage not can withdraw
+    bool internal locked;
+
+    using SafeERC20 for IERC20;
+
+    // Contract owner
+    address public owner;
+
+    uint256 internal MAX_INT = 2**256 - 1;
+
+    struct StakerUser {
+        uint256 amount;
+        address userAddress;
+        bool roundValid;
+        uint256 porcentageParticipant;
+    }
+
+    StakerUser[] listUser;
+
+    uint256 amountUsers;
+    uint256 amountRewards;
+
+    modifier onlyOwner() {
+            require(msg.sender == owner, "only owner ###.");
+            _;
+        }
+
+    modifier lockTrx() {
+        require(!locked, "lock smart contract try later");
+        locked = true;
+        _;
+        locked = false;
+    }
+
+    constructor() payable{
+        address _erc20_contract_address = msg.sender;
+        amountUsers = 0;
+        amountRewards = 0;
+        owner = msg.sender;
+        locked = false;
+        require(address(_erc20_contract_address) != address(0), "_erc20_contract_address address can not be zero");
+        
+    }
+
+    //sum all pool amount
+    mapping(address => uint) private AmountAll;
+
+    function getAmountAll() public view returns(uint256){
+        return AmountAll[owner];
+    }
+
+    function depositReward() public payable onlyOwner{
+        AmountAll[msg.sender] += msg.value;
+        applyRewardsUserFlag();
+    }
+
+    //loop by all user to put true to receive the rewards
+    function applyRewardsUserFlag() private returns(bool){
+        for (uint i=0; i<listUser.length; i++) {
+                  listUser[uint(i)].roundValid = true;
+                  
+            }
+        return false;
+    }
+
+    function searchUser(address _userAddress) private view returns(bool){
+        for (uint i=0; i<listUser.length; i++) {
+                  
+                  if (listUser[uint(i)].userAddress == _userAddress) {
+                      return true;
+                  }
+            }
+        return false;
+    }
+    
+    //calc all percentaje of all users 
+    function calcPercentajeAtAll() internal lockTrx{
+
+        for (uint i=0; i<listUser.length; i++) {
+            
+            uint256 porcentage = (listUser[uint(i)].amount*100) / getAmountAll();//calc percentage of each user
+            //require(porcentage >= 0 && porcentage <= 100, "Percentage must be a value >=1 and <= 100");
+            listUser[uint(i)].porcentageParticipant = porcentage;
+
+        }
+
+    }
+
+    function depositUser() public payable{
+        //deposito all together
+        AmountAll[msg.sender] += msg.value;
+        address _userAddress = msg.sender;
+                
+        bool existUser = searchUser(_userAddress);
+        
+        
+        if(existUser){
+            for (uint i=0; i<listUser.length; i++) {
+                  
+                  if (listUser[uint(i)].userAddress == _userAddress) {
+                      listUser[uint(i)].amount += msg.value;
+                      calcPercentajeAtAll(); 
+                  }
+            }
+
+        }else{
+            //creamos nuevo usuario
+            listUser.push(StakerUser(msg.value,_userAddress,false,0));
+            calcPercentajeAtAll();
+        }
+
+    }
+
+
+    function WithdrawByUser() public lockTrx {
+
+        //deposito all together        
+        address _userAddress = msg.sender;
+
+        bool existUser = searchUser(_userAddress);
+        if(existUser){
+            for (uint i=0; i<listUser.length; i++) {
+                  
+                  if (listUser[uint(i)].userAddress == _userAddress) {
+                      if(listUser[uint(i)].roundValid){
+                        uint256 amountWithPercen = (getAmountAll() * listUser[uint(i)].porcentageParticipant)/100;
+                        payable(msg.sender).transfer(amountWithPercen);
+
+                        calcPercentajeAtAll(); 
+
+                      }else{//pay without reward
+                          payable(msg.sender).transfer(listUser[uint(i)].amount);
+                      }
+                      
+                  }
+            }
+
+        }
+
+    }
+
+
+    function emergencyWithdrawAll() external onlyOwner {
+        (bool success,)=owner.call{value:address(this).balance}("");
+        require(success,"Transfer faileded!");
+    }
+
+ 
+
+
+}
